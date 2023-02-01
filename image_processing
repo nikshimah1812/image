@@ -1,0 +1,91 @@
+import cv2 as cv
+import numpy as np 
+from skimage import morphology
+from skan import draw, Skeleton, summarize, skeleton_to_csgraph
+from skan.pre import threshold
+
+def get_maze(image_path):
+    img = cv.imread(image_path)
+    return img
+
+def get_video():
+    img = cv.VideoCapture(0)
+    # img = cv.resize(img,(650,600), interpolation = cv.INTER_AREA)
+    return img
+
+def filter_video(image):
+    grey = cv.cvtColor(image,cv.COLOR_BGR2GRAY) 
+    # blurs the image to remove noise
+    img_blur = cv.GaussianBlur(grey, (7,7), 0)
+    # # thresholds the image 
+    ret, thresh = cv.threshold(img_blur, 100, 255, cv.THRESH_BINARY_INV)
+    # cv.imshow('thresh', thresh)
+    threshzero = np.where(thresh < 255,0,1)  
+    return grey,img_blur,thresh, threshzero
+
+def get_line(image):
+    skeleton = morphology.skeletonize(image)
+    # extract various values of data from the skeleton values
+    branch_data = summarize(Skeleton(skeleton)) 
+    # The maze path is the largest branch length, so the index of it is found 
+    # in the branch data
+    maxLengthindex = branch_data['branch-distance'].idxmax() 
+    # Path coordinates 
+    path_coords = Skeleton(skeleton).path_coordinates(maxLengthindex).astype(int)
+    path_coords[:,[1,0]] = path_coords[:,[0,1]]
+    return path_coords
+
+def get_circles(image):
+    contours, h = cv.findContours(image,cv.RETR_LIST, cv.CHAIN_APPROX_NONE)
+    # rows = image.shape[0]
+    circles = cv.HoughCircles(image, cv.HOUGH_GRADIENT, 1, 10,
+                                param1=50, param2=26,
+                                minRadius=17, maxRadius=23)
+    return circles
+                         
+def display(image, circles, main_path):
+    # display the circles onto the image, also printing the centre of all them
+    if circles is not None:
+        circles = np.uint16(np.around(circles))
+        for i in circles[0, :]:
+            center = (i[0], i[1])
+            print('center of holes: %s' % (center,))
+            # circle center
+            cv.circle(image, center, 1, (0, 100, 100), 1)
+            # circle outline
+            radius = i[2]
+            cv.circle(image, center, radius, (255, 0, 255), 1)
+    
+    # Display the main path onto the image, print start and end of the line         
+    cv.polylines(image,[main_path],False,(0,255,0),thickness = 2)
+    main_path_start = main_path[0,]
+    main_path_end = main_path[-1,]
+    print('start of the path:',main_path_start,'end of the path:', main_path_end)
+    return image
+    
+def live_stream():
+    # display the live video from the camera, press q to end video
+    img = get_video()
+    ret, frame = img.read()
+    while(True):
+        ret, frame = img.read() 
+        grey,blur,thresh,threshzero = filter_video(frame)
+        main_line = get_line(threshzero)
+        circles = get_circles(grey)
+        image = display(frame,circles,main_line)
+        cv.imshow('line', image)
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            break
+    img.release()    
+    cv.destroyAllWindows()
+    
+# live_stream() 
+img = get_maze('image3.jpg')
+img = cv.resize(img,(650,600), interpolation = cv.INTER_AREA)
+grey,blur,thresh,threshzero = filter_video(img)
+main_line = get_line(threshzero)
+contours = get_circles(grey)
+image = display(img,contours,main_line)
+cv.imshow('frame', image)
+cv.waitKey(0)     
+cv.destroyAllWindows()
